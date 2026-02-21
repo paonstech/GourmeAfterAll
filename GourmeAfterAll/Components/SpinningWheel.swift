@@ -27,11 +27,14 @@ struct SpinningWheel: View {
     
     var body: some View {
         GeometryReader { geometry in
-            let maxSize = min(geometry.size.width, geometry.size.height)
-            let wheelSize = maxSize * 0.8
+            let availableWidth = geometry.size.width - 40  // Padding düşülmüş
+            let availableHeight = geometry.size.height - 100  // Buton alanı düşülmüş
+            let maxSize = min(availableWidth, availableHeight)
+            let wheelSize = min(maxSize * 0.85, 320)  // Max 320pt
             
-            VStack(spacing: 30) {
+            VStack(spacing: 16) {
                 if restaurants.count >= 1 {
+                    // Çark
                     ZStack(alignment: .topTrailing) {
                         wheelView(size: wheelSize)
                         centerPin(size: wheelSize)
@@ -42,16 +45,31 @@ struct SpinningWheel: View {
                     }
                     .frame(width: wheelSize, height: wheelSize)
                     
+                    // Alt Alan
                     if restaurants.count == 1 {
                         singleRestaurantInfo
-                    } else if !isSpinning {
-                        spinButton
+                    } else {
+                        VStack(spacing: 12) {
+                            if !canSpin && restaurants.count < 2 {
+                                Text("En az 2 restoran gerekli")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                            
+                            if !isSpinning {
+                                spinButton
+                            } else {
+                                Text("Çark dönüyor...")
+                                    .font(.headline)
+                                    .foregroundColor(.orange)
+                            }
+                        }
                     }
                 } else {
                     emptyStateView
                 }
             }
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .center)
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
     }
     
@@ -119,21 +137,42 @@ struct SpinningWheel: View {
                 .stroke(colors[index % colors.count], lineWidth: strokeWidth)
                 .rotationEffect(.degrees(-90))
             
-            restaurantText(name: restaurant.name, strokeWidth: strokeWidth)
+            restaurantText(name: restaurant.name, strokeWidth: strokeWidth, restaurantCount: restaurants.count)
                 .rotationEffect(.degrees(midAngle))
                 .position(x: xPosition, y: yPosition)
         }
     }
     
-    private func restaurantText(name: String, strokeWidth: CGFloat) -> some View {
-        let fontSize: CGFloat = min(strokeWidth * 0.35, 14)
+    private func restaurantText(name: String, strokeWidth: CGFloat, restaurantCount: Int) -> some View {
+        // Dilim sayısına göre dinamik font boyutu
+        let baseFontSize: CGFloat
+        switch restaurantCount {
+        case 1...3:
+            baseFontSize = strokeWidth * 0.40  // Büyük dilimler
+        case 4...5:
+            baseFontSize = strokeWidth * 0.35  // Orta dilimler
+        case 6...7:
+            baseFontSize = strokeWidth * 0.30  // Küçük dilimler
+        default:
+            baseFontSize = strokeWidth * 0.25  // Çok küçük dilimler
+        }
         
-        return Text(name)
+        let fontSize = min(baseFontSize, 16)
+        
+        // Uzun isimleri kısalt
+        let displayName: String
+        if name.count > 20 {
+            displayName = String(name.prefix(17)) + "..."
+        } else {
+            displayName = name
+        }
+        
+        return Text(displayName)
             .font(.system(size: fontSize, weight: .bold))
             .foregroundColor(.white)
-            .frame(width: strokeWidth * 0.8)
+            .frame(width: strokeWidth * 0.85)
             .lineLimit(2)
-            .minimumScaleFactor(0.4)
+            .minimumScaleFactor(0.5)
             .multilineTextAlignment(.center)
             .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 1)
     }
@@ -195,32 +234,41 @@ struct SpinningWheel: View {
     
     private var singleRestaurantInfo: some View {
         VStack(spacing: 16) {
-            Text("Tek Restoran Mevcut")
-                .font(.headline)
-                .foregroundColor(.orange)
+            HStack {
+                Image(systemName: "info.circle.fill")
+                    .foregroundColor(.orange)
+                Text("Tek Restoran")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.orange)
+            }
             
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Image(systemName: "fork.knife.circle.fill")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 28, height: 28)
-                        .foregroundColor(.orange)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.orange.opacity(0.15))
+                            .frame(width: 50, height: 50)
+                        
+                        Image(systemName: "fork.knife")
+                            .font(.title3)
+                            .foregroundColor(.orange)
+                    }
                     
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 6) {
                         Text(restaurants.first?.name ?? "")
                             .font(.headline)
                             .foregroundColor(.primary)
+                            .lineLimit(2)
                         
                         HStack(spacing: 8) {
-                            HStack(spacing: 2) {
+                            HStack(spacing: 3) {
                                 Image(systemName: "star.fill")
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 12, height: 12)
+                                    .font(.caption)
                                     .foregroundColor(.orange)
                                 Text(String(format: "%.1f", restaurants.first?.rating ?? 0))
                                     .font(.subheadline)
+                                    .foregroundColor(.secondary)
                             }
                             
                             if let priceLevel = restaurants.first?.priceLevel, priceLevel > 0 {
@@ -230,28 +278,36 @@ struct SpinningWheel: View {
                             }
                         }
                     }
+                    
+                    Spacer()
                 }
                 
-                Text(restaurants.first?.address ?? "")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
+                Divider()
+                
+                HStack(spacing: 6) {
+                    Image(systemName: "mappin.circle.fill")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                    Text(restaurants.first?.address ?? "")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
             }
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(Color(.systemBackground))
-                    .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
+                    .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
             )
             
-            Text("Daha fazla seçenek için arama kriterlerini değiştirin")
-                .font(.caption)
+            Text("Daha fazla seçenek için filtreleri değiştirin")
+                .font(.caption2)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
         }
         .padding(.horizontal, 20)
-        .padding(.top, 20)
+        .padding(.top, 8)
     }
     
     private var emptyStateView: some View {
@@ -278,12 +334,15 @@ struct SpinningWheel: View {
         guard canSpin else { return }
         
         isSpinning = true
+        selectedRestaurant = nil
         
         let haptic = UIImpactFeedbackGenerator(style: .medium)
         haptic.prepare()
         haptic.impactOccurred()
         
-        let baseRotation = 360.0 * 3.0
+        // 3-5 tam tur + rastgele açı
+        let fullSpins = Double.random(in: 3...5)
+        let baseRotation = 360.0 * fullSpins
         let randomOffset = Double.random(in: 0...360)
         let finalRotation = rotation + baseRotation + randomOffset
         
@@ -291,6 +350,7 @@ struct SpinningWheel: View {
             rotation = finalRotation
         }
         
+        // Titreşim efektleri
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             let lightHaptic = UIImpactFeedbackGenerator(style: .light)
             for i in 0..<10 {
@@ -304,9 +364,21 @@ struct SpinningWheel: View {
             let finalHaptic = UINotificationFeedbackGenerator()
             finalHaptic.notificationOccurred(.success)
             
+            // DOĞRU HESAPLAMA: Pointer sağ üstte (45°)
+            // Çark -90° başlıyor (üstten), pointer 45° (sağ üstte)
+            // Toplam offset: -90 + 45 = -45°
             let normalizedRotation = finalRotation.truncatingRemainder(dividingBy: 360)
             let segmentAngle = 360.0 / Double(restaurants.count)
-            let selectedIndex = Int((360 - normalizedRotation + segmentAngle / 2) / segmentAngle) % restaurants.count
+            
+            // Pointer'ın gösterdiği açıyı hesapla
+            // Negatif rotation pozitife çevir
+            var pointerAngle = (360.0 - normalizedRotation + 45.0).truncatingRemainder(dividingBy: 360)
+            if pointerAngle < 0 {
+                pointerAngle += 360
+            }
+            
+            // Hangi segment'te olduğunu bul
+            let selectedIndex = Int(pointerAngle / segmentAngle) % restaurants.count
             
             selectedRestaurant = restaurants[selectedIndex]
             

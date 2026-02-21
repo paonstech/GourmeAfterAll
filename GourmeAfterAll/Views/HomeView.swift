@@ -17,6 +17,7 @@ struct HomeView: View {
     @State private var selectedRestaurant: Restaurant?
     @State private var showLogin = false
     @State private var showProfile = false
+    @State private var wheelSpinId = UUID()  // Çark için unique ID
     
     var body: some View {
         NavigationStack {
@@ -39,6 +40,7 @@ struct HomeView: View {
                         
                         if let restaurant = selectedRestaurant {
                             selectedRestaurantCard(restaurant)
+                                .id(restaurant.id)  // Her restaurant için unique ID
                         }
                         
                         Spacer(minLength: 40)
@@ -159,61 +161,80 @@ struct HomeView: View {
     }
     
     private var wheelSection: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 16) {
             let displayRestaurants = viewModel.filteredRestaurants.isEmpty ? viewModel.restaurants : viewModel.filteredRestaurants
             
             if !displayRestaurants.isEmpty {
                 Text("Çarkı Çevir, Şansını Dene!")
                     .font(.title3)
                     .fontWeight(.semibold)
-                    .padding(.top, 30)
-                
-                Spacer()
-                    .frame(height: 20)
+                    .padding(.top, 20)
                 
                 SpinningWheel(restaurants: Array(displayRestaurants.prefix(8))) { restaurant in
-                    withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-                        selectedRestaurant = restaurant
-                    }
+                    // Çark çevirme başladığında önceki seçimi temizle
+                    selectedRestaurant = nil
                     
-                    if authManager.isAuthenticated {
-                        authManager.addToHistory(restaurant: restaurant)
+                    // Kısa bir gecikme sonrası yeni restaurant'ı göster
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                            selectedRestaurant = restaurant
+                        }
+                        
+                        if authManager.isAuthenticated {
+                            authManager.addToHistory(restaurant: restaurant)
+                        }
+                        
+                        let haptic = UINotificationFeedbackGenerator()
+                        haptic.notificationOccurred(.success)
                     }
-                    
-                    let haptic = UINotificationFeedbackGenerator()
-                    haptic.notificationOccurred(.success)
                 }
-                .frame(height: 420)
-                .padding(.vertical, 10)
+                .id(wheelSpinId)
+                .frame(height: 440)  // Sabit yükseklik
+                .padding(.vertical, 4)
                 
                 HStack(spacing: 12) {
                     Button(action: {
+                        // Tüm state'leri temizle
+                        selectedRestaurant = nil
+                        wheelSpinId = UUID()
+                        viewModel.searchText = ""
+                        viewModel.maxDistance = 5.0
+                        
                         Task {
                             await viewModel.refreshRestaurants()
                         }
                     }) {
-                        HStack {
-                            Image(systemName: "arrow.clockwise")
+                        HStack(spacing: 6) {
+                            Image(systemName: viewModel.isLoading ? "arrow.clockwise" : "arrow.clockwise")
+                                .rotationEffect(.degrees(viewModel.isLoading ? 360 : 0))
+                                .animation(viewModel.isLoading ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: viewModel.isLoading)
                             Text("Yenile")
                         }
                         .font(.subheadline)
+                        .fontWeight(.medium)
                         .foregroundColor(.orange)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 12)
                         .background(
                             Capsule()
                                 .stroke(Color.orange, lineWidth: 2)
+                                .background(Capsule().fill(Color.white))
                         )
                     }
+                    .disabled(viewModel.isLoading)
                     
                     Text("\(displayRestaurants.count) restoran")
                         .font(.caption)
+                        .fontWeight(.medium)
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
-                        .background(Color(.systemGray6))
-                        .cornerRadius(12)
+                        .background(
+                            Capsule()
+                                .fill(Color(.systemGray6))
+                        )
                 }
+                .padding(.top, 12)
             } else {
                 emptyWheelState
             }
@@ -258,8 +279,22 @@ struct HomeView: View {
             }
             
             RestaurantCard(restaurant: restaurant) {
-                restaurant.isFavorite.toggle()
-                try? modelContext.save()
+                // Veritabanındaki restaurant'ı bul ve güncelle
+                let restaurantId = restaurant.id
+                let fetchDescriptor = FetchDescriptor<Restaurant>(
+                    predicate: #Predicate<Restaurant> { $0.id == restaurantId }
+                )
+                
+                if let dbRestaurants = try? modelContext.fetch(fetchDescriptor),
+                   let dbRestaurant = dbRestaurants.first {
+                    dbRestaurant.isFavorite.toggle()
+                    try? modelContext.save()
+                } else {
+                    // Eğer database'de yoksa, ekle
+                    restaurant.isFavorite.toggle()
+                    modelContext.insert(restaurant)
+                    try? modelContext.save()
+                }
                 
                 let haptic = UIImpactFeedbackGenerator(style: .light)
                 haptic.impactOccurred()
